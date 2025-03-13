@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallba
 import { LoadingIndicator } from "@/components/ui/loading-indicator"
 
 const primaryColor = "rgb(100, 116, 139)" // slate-500
-const accentColor = "rgb(238, 95, 39)" // blue-500
+const accentColor = "rgb(238, 39, 52)" // blue-500
 
 export interface RawHtmlViewerRef {
   scrollToHeading: (id: string) => boolean
@@ -32,10 +32,7 @@ export const RawHtmlViewer = forwardRef<RawHtmlViewerRef, RawHtmlViewerProps>(
       requestAnimationFrame(() => {
         try {
           const doc = iframe.contentDocument
-          const height = Math.max(
-            doc.body.scrollHeight,
-            doc.documentElement.scrollHeight
-          )
+          const height = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight)
           setIframeHeight(`${height}px`)
         } catch (error) {
           console.error("Iframe height error:", error)
@@ -64,9 +61,9 @@ export const RawHtmlViewer = forwardRef<RawHtmlViewerRef, RawHtmlViewerProps>(
 
         let el = iframe.contentDocument.getElementById(id)
         if (!el && id.startsWith("heading-")) {
-          const idx = parseInt(id.replace("heading-", ""))
+          const idx = Number.parseInt(id.replace("heading-", ""))
           const headings = iframe.contentDocument.querySelectorAll("h1, h2, h3, h4, h5, h6")
-          el = idx < headings.length ? headings[idx] as HTMLElement : null
+          el = idx < headings.length ? (headings[idx] as HTMLElement) : null
         }
         if (!el) return false
 
@@ -80,15 +77,18 @@ export const RawHtmlViewer = forwardRef<RawHtmlViewerRef, RawHtmlViewerProps>(
           current = section.parentElement
         }
 
-        unfoldedSections.reverse().forEach(sec => {
+        unfoldedSections.reverse().forEach((sec) => {
           const btn = sec.querySelector(".fold-toggle") as HTMLElement
           btn?.click()
         })
 
-        setTimeout(() => {
-          const top = el.getBoundingClientRect().top + iframe.contentWindow!.scrollY
-          smoothScrollTo(containerRef.current!, top + iframe.offsetTop, 300)
-        }, unfoldedSections.length ? 30 : 0)
+        setTimeout(
+          () => {
+            const top = el.getBoundingClientRect().top + iframe.contentWindow!.scrollY
+            smoothScrollTo(containerRef.current!, top + iframe.offsetTop, 300)
+          },
+          unfoldedSections.length ? 30 : 0,
+        )
         return true
       },
       scrollToTop: () => containerRef.current && (containerRef.current.scrollTop = 0),
@@ -101,7 +101,7 @@ export const RawHtmlViewer = forwardRef<RawHtmlViewerRef, RawHtmlViewerProps>(
       const main = doc.querySelector(".document-wrapper") || doc.body
       const headings = main.querySelectorAll("h1, h2, h3, h4, h5, h6")
 
-      headings.forEach(h => {
+      headings.forEach((h) => {
         const section = doc.createElement("div")
         section.className = "section-wrapper"
 
@@ -117,7 +117,13 @@ export const RawHtmlViewer = forwardRef<RawHtmlViewerRef, RawHtmlViewerProps>(
         </svg>
         `
         btn.className = "fold-toggle"
-        Object.assign(btn.style, { background: "none", border: "none", marginRight: "4px", cursor: "pointer", color: primaryColor })
+        Object.assign(btn.style, {
+          background: "none",
+          border: "none",
+          marginRight: "4px",
+          cursor: "pointer",
+          color: primaryColor,
+        })
 
         const clone = h.cloneNode(true) as HTMLElement
         clone.style.margin = "0"
@@ -131,8 +137,8 @@ export const RawHtmlViewer = forwardRef<RawHtmlViewerRef, RawHtmlViewerProps>(
         content.style.cssText = "transition:all .3s ease;overflow:hidden;width:100%;display:block"
 
         let next = h.nextElementSibling
-        const level = parseInt(h.tagName[1])
-        while (next && (!/^H[1-6]$/.test(next.tagName) || parseInt(next.tagName[1]) > level)) {
+        const level = Number.parseInt(h.tagName[1])
+        while (next && (!/^H[1-6]$/.test(next.tagName) || Number.parseInt(next.tagName[1]) > level)) {
           const temp = next.nextElementSibling
           content.appendChild(next)
           next = temp
@@ -160,7 +166,8 @@ export const RawHtmlViewer = forwardRef<RawHtmlViewerRef, RawHtmlViewerProps>(
       updateIframeHeight()
     }, [updateIframeHeight])
 
-    const generateContentHash = (content: string) => [...content].reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0).toString()
+    const generateContentHash = (content: string) =>
+      [...content].reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0).toString()
 
     useEffect(() => {
       const iframe = iframeRef.current
@@ -176,8 +183,35 @@ export const RawHtmlViewer = forwardRef<RawHtmlViewerRef, RawHtmlViewerProps>(
       const doc = iframe.contentWindow?.document
       doc?.open()
       let processedHtml = htmlContent
-      if (baseUrl) processedHtml = processedHtml.replace(/<head>/i, `<head><base href="${baseUrl}">`)
+
+      // Add base URL if provided
+      if (baseUrl) {
+        processedHtml = processedHtml.replace(/<head>/i, `<head><base href="${baseUrl}">`)
+      }
+
+      // Write the HTML to the iframe
       doc?.write(processedHtml)
+
+      // Add the fallback script for media loading errors
+      if (altAttachmentDirectory && doc) {
+        const script = doc.createElement("script")
+        script.textContent = `
+      document.addEventListener('error', function(e) {
+        const target = e.target;
+        if (target && (target.tagName === 'IMG' || target.tagName === 'AUDIO' || target.tagName === 'VIDEO' || target.tagName === 'SOURCE')) {
+          const srcAttr = target.tagName === 'SOURCE' ? 'srcset' : 'src';
+          const originalSrc = target.getAttribute(srcAttr);
+          if (originalSrc && !originalSrc.includes('${altAttachmentDirectory}')) {
+            const newSrc = originalSrc.startsWith('/') ? '/${altAttachmentDirectory}' + originalSrc : '${altAttachmentDirectory}/' + originalSrc;
+            console.log('Image Failed to load:', originalSrc, 'Trying:', newSrc);
+            target.setAttribute(srcAttr, newSrc);
+          }
+        }
+      }, true);
+    `
+        doc.head.appendChild(script)
+      }
+
       doc?.close()
 
       const handleLoad = () => {
@@ -188,15 +222,25 @@ export const RawHtmlViewer = forwardRef<RawHtmlViewerRef, RawHtmlViewerProps>(
 
       iframe.addEventListener("load", handleLoad)
       return () => iframe.removeEventListener("load", handleLoad)
-    }, [htmlContent, baseUrl, setupContentFolding, updateIframeHeight])
+    }, [htmlContent, baseUrl, setupContentFolding, updateIframeHeight, altAttachmentDirectory])
 
     return (
       <div ref={containerRef} className="w-full h-full relative overflow-auto scrollbar-custom">
-        {loading && <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10"><LoadingIndicator text="Loading content..." /></div>}
-        <iframe ref={iframeRef} style={{ height: iframeHeight }} className="w-full border-0" sandbox="allow-same-origin allow-scripts" />
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
+            <LoadingIndicator text="Loading content..." />
+          </div>
+        )}
+        <iframe
+          ref={iframeRef}
+          style={{ height: iframeHeight }}
+          className="w-full border-0"
+          sandbox="allow-same-origin allow-scripts"
+        />
       </div>
     )
-  }
+  },
 )
 
 RawHtmlViewer.displayName = "RawHtmlViewer"
+
